@@ -11,7 +11,7 @@ API_KEY = ''
 API_SECRET = b''
 
 # Тонкая настройка
-CURRENCY_1 = 'liza' 
+CURRENCY_1 = None 
 CURRENCY_2 = 'btc'
 
 ORDER_LIFE_TIME_BUY = 5 # через сколько секунд отменять неисполненный ордер на покупку CURRENCY_1
@@ -19,10 +19,9 @@ ORDER_LIFE_TIME_SELL = 3600 # через 60 минут отменить орде
 STOCK_FEE = 0.002 # Комиссия, которую берет биржа (0.002 = 0.2%)
 OFFERS_AMOUNT = 1 # Сколько предложений из стакана берем для расчета средней цены
 CAN_SPEND = 0,002 # Сколько тратить CURRENCY_2 каждый раз при покупке CURRENCY_1
-PROFIT_1 = 0.50 # Какая прибыль нужна с первой сделки? (0.001 = 0.1%)
-PROFIT_2 = 1.00 # 100% прибыль (для второй сделки)
+PROFIT_1 = 0.50 # Продажа после роста цены на 50 % (0.001 = 0.1%)
+PROFIT_2 = 1.00 # Продажа после роста цены на 100%
 DEBUG = True # True - выводить отладочную информацию, False - писать как можно меньше
-
 
 CURR_PAIR = CURRENCY_1.lower() + "_" + CURRENCY_2.lower()
 """
@@ -77,27 +76,27 @@ def call_api(**kwargs):
     except json.decoder.JSONDecodeError:
         raise ScriptError('Ошибка анализа возвращаемых данных, получена строка', response)
 
+def buy(CURRENCY_1):
+   # CURRENCY_1 купить
+   # Достаточно ли денег на балансе в валюте CURRENCY_2 (Баланс >= CAN_SPEND
+   if float(balances.get(CURRENCY_2, 0)) >= CAN_SPEND:
+        res = requests.get('https://yobit.net/api/3/ticker/ltc_btc') # получаем данные ticker'а
+        res_obj = json.loads(res.text) # переводим полученный текст в объект с данными
+        price_buy = res_obj['ltc_btc']['buy']                    
+        my_amount = CAN_SPEND/price # рассчитываем количество которое можем купить
+        print('buy: кол-во {amount:0.8f}, курс: {rate:0.8f}'.format(amount=my_amount, rate=my_need_price))
+        # Допускается ли покупка такого кол-ва валюты (т.е. не нарушается минимальная сумма сделки)
+        new_order = call_api(method="Trade", pair=CURR_PAIR, type="buy", rate="{rate:0.8f}".format(rate=price), amount="{amount:0.8f}".format(amount=my_amount))['return']
+        print(new_order)
+     	if DEBUG:
+     	    print('Создан ордер на покупку', new_order['order_id'])    
+   else:
+    	raise ScriptQuitCondition('Выход, не хватает денег')
+        
 # Реализация алгоритма
 def main_flow():
-     # CURRENCY_1 купить
-     # Достаточно ли денег на балансе в валюте CURRENCY_2 (Баланс >= CAN_SPEND)
-     if float(balances.get(CURRENCY_2, 0)) >= CAN_SPEND:
-     res = requests.get('https://yobit.net/api/3/ticker/ltc_btc') # получаем данные ticker'а
-     res_obj = json.loads(res.text) # переводим полученный текст в объект с данными
-     price_buy = res_obj['ltc_btc']['buy']                    
-     	        
-     my_amount = CAN_SPEND/price # рассчитываем количество которое можем купить
-                      
-     print('buy: кол-во {amount:0.8f}, курс: {rate:0.8f}'.format(amount=my_amount, rate=my_need_price))
-                        
-     # Допускается ли покупка такого кол-ва валюты (т.е. не нарушается минимальная сумма сделки)
-     new_order = call_api(method="Trade", pair=CURR_PAIR, type="buy", rate="{rate:0.8f}".format(rate=price), amount="{amount:0.8f}".format(amount=my_amount))['return']
-                       
-     print(new_order)
-     	if DEBUG:
-     		print('Создан ордер на покупку', new_order['order_id'])    
-     else:
-    	raise ScriptQuitCondition('Выход, не хватает денег')
+   if CURRENCY_1:
+       buy
     
     
     try:
