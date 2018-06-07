@@ -17,7 +17,7 @@ CURRENCY_2 = 'btc'
 ORDER_LIFE_TIME_BUY = 5 # через сколько секунд отменять неисполненный ордер на покупку CURRENCY_1
 ORDER_LIFE_TIME_SELL = 3600 # через 60 минут отменить орден на продажу
 STOCK_FEE = 0.002 # Комиссия, которую берет биржа (0.002 = 0.2%)
-OFFERS_AMOUNT = 2 # Сколько предложений из стакана берем для расчета средней цены
+OFFERS_AMOUNT = 1 # Сколько предложений из стакана берем для расчета средней цены
 CAN_SPEND = 0,002 # Сколько тратить CURRENCY_2 каждый раз при покупке CURRENCY_1
 PROFIT_1 = 0.50 # Какая прибыль нужна с первой сделки? (0.001 = 0.1%)
 PROFIT_2 = 1.00 # 100% прибыль (для второй сделки)
@@ -77,44 +77,26 @@ def call_api(**kwargs):
     except json.decoder.JSONDecodeError:
         raise ScriptError('Ошибка анализа возвращаемых данных, получена строка', response)
 
-
-def wanna_get_1():
-    return  (CAN_SPEND*(1+STOCK_FEE) + CAN_SPEND * PROFIT_1) / (1 - STOCK_FEE)  # сколько хотим получить за наше кол-во после первой продажи
-def wanna_get_2():
-    return  (CAN_SPEND*(1+STOCK_FEE) + CAN_SPEND * PROFIT_2) / (1 - STOCK_FEE)  # сколько хотим получить за наше кол-во после второй продажи
-
 # Реализация алгоритма
 def main_flow():
      # CURRENCY_1 купить
      # Достаточно ли денег на балансе в валюте CURRENCY_2 (Баланс >= CAN_SPEND)
      if float(balances.get(CURRENCY_2, 0)) >= CAN_SPEND:
-     # Получаем информацию по предложениям из стакана
-     offers = json.loads(requests.get("https://yobit.io/api/3/depth/"+CURR_PAIR+"?limit="+str(OFFERS_AMOUNT)).text)[CURR_PAIR]
-     prices = [bid[0] for bid in offers['bids']]                    
-     	try:        
-     		avg_price = sum(prices)/len(prices)
-        	"""
-        	Посчитать, сколько валюты CURRENCY_1 можно купить.
-        	На сумму CAN_SPEND за минусом STOCK_FEE, и с учетом PROFIT_MARKUP
-        	( = ниже средней цены рынка, с учетом комиссии и желаемого профита)
-         	"""
-        	# Купить как есть, потом продать с учетом комиссии
-        	my_need_price = avg_price# - avg_price * (STOCK_FEE+PROFIT_MARKUP) 
-        	my_amount = CAN_SPEND/my_need_price
+     res = requests.get('https://yobit.net/api/3/ticker/ltc_btc') # получаем данные ticker'а
+     res_obj = json.loads(res.text) # переводим полученный текст в объект с данными
+     price_buy = res_obj['ltc_btc']['buy']                    
+     	        
+     my_amount = CAN_SPEND/price # рассчитываем количество которое можем купить
                       
-        	print('buy: кол-во {amount:0.8f}, курс: {rate:0.8f}'.format(amount=my_amount, rate=my_need_price))
+     print('buy: кол-во {amount:0.8f}, курс: {rate:0.8f}'.format(amount=my_amount, rate=my_need_price))
                         
-        	# Допускается ли покупка такого кол-ва валюты (т.е. не нарушается минимальная сумма сделки)
-        	new_order = call_api(method="Trade", pair=CURR_PAIR, type="buy", rate="{rate:0.8f}".format(rate=my_need_price), amount="{amount:0.8f}".format(amount=my_amount))['return']
+     # Допускается ли покупка такого кол-ва валюты (т.е. не нарушается минимальная сумма сделки)
+     new_order = call_api(method="Trade", pair=CURR_PAIR, type="buy", rate="{rate:0.8f}".format(rate=price), amount="{amount:0.8f}".format(amount=my_amount))['return']
                        
-        	print(new_order)
-        	if DEBUG:
-        		print('Создан ордер на покупку', new_order['order_id'])
-                  
-                        
-        except ZeroDivisionError:
-        	print('Не удается вычислить среднюю цену', prices)
-	else:
+     print(new_order)
+     	if DEBUG:
+     		print('Создан ордер на покупку', new_order['order_id'])    
+     else:
     	raise ScriptQuitCondition('Выход, не хватает денег')
     
     
@@ -157,10 +139,10 @@ def main_flow():
                 if order_info ['status'] == 0 and order_info['start_amount'] == order_info['amount']: # ордер не исполнен, по нему ничего не куплено
                     time_passed = time.time()  - int(order['timestamp_created'])
 
-                    if time_passed > ORDER_LIFE_TIME * 60:
-                        # Ордер уже давно висит, никому не нужен, отменяем
+                    if time_passed > ORDER_LIFE_TIME_BUY:
+                        # Ордер отменяем
                         call_api(method="CancelOrder", order_id=order['order_id']) 
-                        raise ScriptQuitCondition('Отменяем ордер: за ' + str(ORDER_LIFE_TIME) + ' минут не удалось купить '+ str(CURRENCY_1))
+                        raise ScriptQuitCondition('Отменяем ордер: за ' + str(ORDER_LIFE_TIME_BUY) + ' секунд не удалось купить '+ str(CURRENCY_1))
                     else:
                         raise ScriptQuitCondition('Выход, продолжаем надеяться купить валюту по указанному ранее курсу, со времени создания ордера прошло %s секунд' % str(time_passed))
                 else:
@@ -168,14 +150,7 @@ def main_flow():
                    
         else: # Открытых ордеров нет
             balances = call_api(method="getInfo")['return']['funds']
-            if float(balances.get(CURRENCY_1, 0)) > 0: # Есть ли в наличии CURRENCY_1, которую можно продать?
-                """
-                    Высчитываем курс для продажи.
-                    Нам надо продать всю валюту, которую купили, на сумму, за которую купили + немного навара и минус комиссия биржи
-                    При этом важный момент, что валюты у нас меньше, чем купили - бирже ушла комиссия
-                    0.00134345 1.5045
-                    Поэтому курс продажи может получиться довольно высоким
-                """
+            if float(balances.get(CURRENCY_1, 0)) > 0 and : # Есть ли в наличии CURRENCY_1, которую можно продать?
                 print('sell', balances[CURRENCY_1], wanna_get(), (wanna_get()/float(balances[CURRENCY_1])))
                 new_order = call_api(method="Trade", pair=CURR_PAIR, type="sell", rate="{rate:0.8f}".format(rate=wanna_get()/float(balances[CURRENCY_1])), amount="{amount:0.8f}".format(amount=balances[CURRENCY_1]))['return']
                
