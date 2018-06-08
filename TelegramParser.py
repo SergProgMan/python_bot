@@ -46,7 +46,8 @@ def check_id_message(new_id):
         old_id=int(dic[msg_id])
         if new_id > old_id:
             dic[msg_id]=str(new_id)
-            json.dump(dict, f)
+            dic[find_coin]=True
+            json.dump(dic, f)
             return True
         else:
             return False
