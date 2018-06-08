@@ -4,6 +4,7 @@ from telethon.tl.functions.channels import GetMessagesRequest
 from telethon.tl.functions.messages import GetHistoryRequest, ReadHistoryRequest
 from telethon.utils import InputPeerChannel
 
+import json
 
 api_id = 240334                  # API ID (получается при регистрации приложения на my.telegram.org)
 api_hash = "0f9197ade9ccb29595ca1779e4631e48"              # API Hash (оттуда же)
